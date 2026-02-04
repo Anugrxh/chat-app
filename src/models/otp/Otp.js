@@ -26,18 +26,27 @@ const otpSchema = new mongoose.Schema({
         type: Date,
         required: true,
         index: { expires: 0 } // Document expires at this specific time
+    },
+    pendingUserData: {
+        type: {
+            username: String,
+            fullname: String,
+            password: String // Already hashed before storage
+        },
+        select: false // Not returned by default for security
     }
 }, {
     timestamps: true
 });
 
+
 // Hash OTP before saving
-otpSchema.pre('save', async function (next) {
-    if (!this.isModified('otp')) return next();
+otpSchema.pre('save', async function () {
+    if (!this.isModified('otp')) return;
     const salt = await bcrypt.genSalt(10);
     this.otp = await bcrypt.hash(this.otp, salt);
-    next();
 });
+
 
 // Method to verify OTP
 otpSchema.methods.compareOtp = async function (candidateOtp) {

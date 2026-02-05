@@ -23,12 +23,14 @@ const ERROR_MESSAGES = {
     UNAUTHORIZED: 'Authentication required',
     TOKEN_EXPIRED: 'Token has expired',
     INVALID_TOKEN: 'Invalid token',
+    INVALID_REFRESH_TOKEN: 'Invalid or expired refresh token',
+    OAUTH_ONLY_ACCOUNT: 'This account uses Google login. Please sign in with Google.',
 
     // User
     USER_NOT_FOUND: 'User not found',
     USER_ALREADY_EXISTS: 'User with this email already exists',
     USERNAME_TAKEN: 'Username is already taken',
-    EMAIL_NOT_VERIFIED: 'Email not verified',
+    EMAIL_NOT_VERIFIED: 'Email not verified. Please verify your email first.',
 
     // OTP
     OTP_SENT: 'OTP sent to your email',
@@ -51,7 +53,10 @@ const SUCCESS_MESSAGES = {
     OTP_VERIFIED: 'Email verified successfully',
     USER_CREATED: 'Account created successfully',
     OTP_RESENT: 'OTP has been resent to your email',
-    LOGIN_SUCCESS: 'Login successful'
+    LOGIN_SUCCESS: 'Login successful',
+    LOGOUT_SUCCESS: 'Logged out successfully',
+    LOGOUT_ALL_SUCCESS: 'Logged out from all devices',
+    TOKEN_REFRESHED: 'Token refreshed successfully'
 };
 
 // OTP Purposes

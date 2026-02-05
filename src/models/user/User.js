@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
     username: {
@@ -56,5 +57,14 @@ const userSchema = new mongoose.Schema({
 
 // Adding indexes if needed for custom queries
 userSchema.index({ email: 1, username: 1 });
+
+/**
+ * Compare password with hashed password
+ * @param {string} candidatePassword - Plain text password to compare
+ * @returns {Promise<boolean>} - True if passwords match
+ */
+userSchema.methods.comparePassword = async function (candidatePassword) {
+    return await bcrypt.compare(candidatePassword, this.password);
+};
 
 module.exports = mongoose.model('User', userSchema);

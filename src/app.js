@@ -1,8 +1,12 @@
 // src/app.js
 const express = require('express');
 const cors = require('cors');
+const passport = require('passport');
 const v1Routes = require('./api/v1');
 const { errorHandler, notFoundHandler } = require('./middleware/error.middleware');
+
+// Load passport config
+require('./config/passport');
 
 const app = express();
 
@@ -10,6 +14,9 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10kb' })); // Body limit for security
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// Initialize Passport
+app.use(passport.initialize());
 
 // API routes
 app.use('/api/v1', v1Routes);

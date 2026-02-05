@@ -13,6 +13,21 @@ const refreshTokenSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    deviceId: {
+        type: String,
+        required: true,
+        index: true
+    },
+    deviceInfo: {
+        name: { type: String, default: 'Unknown Device' },
+        type: { type: String, default: 'unknown' },
+        userAgent: { type: String, default: '' },
+        ip: { type: String, default: '' }
+    },
+    lastUsedAt: {
+        type: Date,
+        default: Date.now
+    },
     expiresAt: {
         type: Date,
         required: true,
@@ -22,12 +37,14 @@ const refreshTokenSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Compound index for efficient lookup by user and device
+refreshTokenSchema.index({ userId: 1, deviceId: 1 });
+
 // Hash token before saving
-refreshTokenSchema.pre('save', async function (next) {
-    if (!this.isModified('token')) return next();
+refreshTokenSchema.pre('save', async function () {
+    if (!this.isModified('token')) return;
     const salt = await bcrypt.genSalt(10);
     this.token = await bcrypt.hash(this.token, salt);
-    next();
 });
 
 // Method to verify token

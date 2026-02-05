@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const { User, Otp } = require('../../../models');
+const { User, Otp, RefreshToken } = require('../../../models');
 const { generateOTP } = require('../../../utils/otp');
 const { generateTokenPair } = require('../../../utils/jwt');
 const { AppError } = require('../../../middleware/error.middleware');
@@ -25,6 +25,83 @@ const isEmailTaken = async (email) => {
 const isUsernameTaken = async (username) => {
     const user = await User.findOne({ username: username.toLowerCase() });
     return !!user;
+};
+
+/**
+ * Parse user agent to get device name
+ * @param {string} userAgent
+ * @returns {object} { name, type }
+ */
+const parseUserAgent = (userAgent) => {
+    if (!userAgent) return { name: 'Unknown Device', type: 'unknown' };
+
+    let name = 'Unknown Device';
+    let type = 'unknown';
+
+    // Detect browser
+    if (userAgent.includes('Chrome')) name = 'Chrome';
+    else if (userAgent.includes('Firefox')) name = 'Firefox';
+    else if (userAgent.includes('Safari')) name = 'Safari';
+    else if (userAgent.includes('Edge')) name = 'Edge';
+    else if (userAgent.includes('Opera')) name = 'Opera';
+
+    // Detect OS and type
+    if (userAgent.includes('iPhone') || userAgent.includes('iPad')) {
+        name += ' on iOS';
+        type = 'mobile';
+    } else if (userAgent.includes('Android')) {
+        name += ' on Android';
+        type = 'mobile';
+    } else if (userAgent.includes('Windows')) {
+        name += ' on Windows';
+        type = 'desktop';
+    } else if (userAgent.includes('Mac')) {
+        name += ' on macOS';
+        type = 'desktop';
+    } else if (userAgent.includes('Linux')) {
+        name += ' on Linux';
+        type = 'desktop';
+    }
+
+    // Check for mobile apps or Postman
+    if (userAgent.includes('Postman')) {
+        name = 'Postman';
+        type = 'api-client';
+    }
+
+    return { name, type };
+};
+
+/**
+ * Store refresh token with device info
+ * @param {string} userId
+ * @param {string} refreshToken
+ * @param {object} deviceInfo - { deviceId, userAgent, ip }
+ */
+const storeRefreshToken = async (userId, refreshToken, deviceInfo) => {
+    const { deviceId, userAgent, ip } = deviceInfo;
+    const { name, type } = parseUserAgent(userAgent);
+
+    // Calculate expiry (7 days default)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    // Remove existing token for this device (one token per device)
+    await RefreshToken.deleteMany({ userId, deviceId });
+
+    // Create new refresh token record
+    await RefreshToken.create({
+        userId,
+        token: refreshToken,
+        deviceId,
+        deviceInfo: {
+            name,
+            type,
+            userAgent,
+            ip
+        },
+        expiresAt
+    });
 };
 
 /**
@@ -97,9 +174,10 @@ const initiateSignup = async ({ email, username, fullname, password }) => {
  * Verify OTP and complete signup
  * @param {string} email
  * @param {string} otp
+ * @param {object} deviceInfo - { deviceId, userAgent, ip }
  * @returns {Promise<object>} - { user, accessToken, refreshToken }
  */
-const verifySignupOTP = async (email, otp) => {
+const verifySignupOTP = async (email, otp, deviceInfo) => {
     const normalizedEmail = email.toLowerCase();
 
     // Find the OTP record with pending user data
@@ -163,6 +241,9 @@ const verifySignupOTP = async (email, otp) => {
 
     // Generate tokens
     const { accessToken, refreshToken } = generateTokenPair(user._id);
+
+    // Store refresh token with device info
+    await storeRefreshToken(user._id, refreshToken, deviceInfo);
 
     // Return user data (without password)
     const userResponse = {

@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { User, Otp, RefreshToken } = require('../../../models');
 const { generateOTP } = require('../../../utils/otp');
-const { generateTokenPair } = require('../../../utils/jwt');
+const { generateTokenPair, generateAccessToken } = require('../../../utils/jwt');
 const { AppError } = require('../../../middleware/error.middleware');
 const { HTTP_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES, OTP_PURPOSE } = require('../../../utils/constants');
 const env = require('../../../config/env');
@@ -103,6 +103,23 @@ const storeRefreshToken = async (userId, refreshToken, deviceInfo) => {
         expiresAt
     });
 };
+
+/**
+ * Format user response (without sensitive fields)
+ * @param {object} user - User document
+ * @returns {object} Sanitized user object
+ */
+const formatUserResponse = (user) => ({
+    id: user._id,
+    email: user.email,
+    username: user.username,
+    fullname: user.fullname,
+    profilePicture: user.profilePicture,
+    isEmailVerified: user.isEmailVerified,
+    createdAt: user.createdAt
+});
+
+
 
 /**
  * Initiate signup process - validates input and sends OTP
@@ -245,19 +262,8 @@ const verifySignupOTP = async (email, otp, deviceInfo) => {
     // Store refresh token with device info
     await storeRefreshToken(user._id, refreshToken, deviceInfo);
 
-    // Return user data (without password)
-    const userResponse = {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        fullname: user.fullname,
-        profilePicture: user.profilePicture,
-        isEmailVerified: user.isEmailVerified,
-        createdAt: user.createdAt
-    };
-
     return {
-        user: userResponse,
+        user: formatUserResponse(user),
         accessToken,
         refreshToken
     };
@@ -314,8 +320,184 @@ const resendSignupOTP = async (email) => {
     };
 };
 
+// =====================
+// LOGIN FUNCTIONS
+// =====================
+
+/**
+ * Login with email and password
+ * @param {string} email
+ * @param {string} password
+ * @param {object} deviceInfo - { deviceId, userAgent, ip }
+ * @returns {Promise<object>} - { user, accessToken, refreshToken }
+ */
+const login = async (email, password, deviceInfo) => {
+    const normalizedEmail = email.toLowerCase();
+
+    // Find user with password field
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
+
+    if (!user) {
+        throw new AppError(ERROR_MESSAGES.INVALID_CREDENTIALS, HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Check if user has password (might be OAuth-only account)
+    if (!user.password) {
+        throw new AppError(ERROR_MESSAGES.OAUTH_ONLY_ACCOUNT, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Verify password
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+        throw new AppError(ERROR_MESSAGES.INVALID_CREDENTIALS, HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Check if email is verified
+    if (!user.isEmailVerified) {
+        throw new AppError(ERROR_MESSAGES.EMAIL_NOT_VERIFIED, HTTP_STATUS.FORBIDDEN);
+    }
+
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokenPair(user._id);
+
+    // Store refresh token with device info
+    await storeRefreshToken(user._id, refreshToken, deviceInfo);
+
+    return {
+        user: formatUserResponse(user),
+        accessToken,
+        refreshToken
+    };
+};
+
+/**
+ * Login/Register with Google OAuth
+ * @param {object} user - User from passport strategy
+ * @param {object} deviceInfo - { deviceId, userAgent, ip }
+ * @returns {Promise<object>} - { user, accessToken, refreshToken }
+ */
+const googleOAuthLogin = async (user, deviceInfo) => {
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokenPair(user._id);
+
+    // Store refresh token with device info
+    await storeRefreshToken(user._id, refreshToken, deviceInfo);
+
+    return {
+        user: formatUserResponse(user),
+        accessToken,
+        refreshToken
+    };
+};
+
+
+
+/**
+ 
+ * @param {string} refreshToken
+ * @param {object} deviceInfo - { deviceId, userAgent, ip }
+ * @returns {Promise<object>} - { accessToken, refreshToken }
+ */
+const refreshAccessToken = async (refreshToken, deviceInfo) => {
+    const { deviceId } = deviceInfo;
+
+    // Find all refresh tokens for this device
+    const tokenRecords = await RefreshToken.find({ deviceId });
+
+    if (tokenRecords.length === 0) {
+        throw new AppError(ERROR_MESSAGES.INVALID_REFRESH_TOKEN, HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Find matching token
+    let validTokenRecord = null;
+    for (const record of tokenRecords) {
+        const isValid = await record.compareToken(refreshToken);
+        if (isValid) {
+            validTokenRecord = record;
+            break;
+        }
+    }
+
+    if (!validTokenRecord) {
+        throw new AppError(ERROR_MESSAGES.INVALID_REFRESH_TOKEN, HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Check if token expired
+    if (validTokenRecord.expiresAt < new Date()) {
+        await RefreshToken.deleteOne({ _id: validTokenRecord._id });
+        throw new AppError(ERROR_MESSAGES.TOKEN_EXPIRED, HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    // Generate new tokens (token rotation for security)
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = generateTokenPair(validTokenRecord.userId);
+
+    // Update refresh token (rotation)
+    await storeRefreshToken(validTokenRecord.userId, newRefreshToken, deviceInfo);
+
+    return {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken
+    };
+};
+
+/**
+ * Logout from current device
+ * @param {string} userId
+ * @param {string} deviceId
+ * @returns {Promise<object>} - { message }
+ */
+const logout = async (userId, deviceId) => {
+    await RefreshToken.deleteMany({ userId, deviceId });
+
+    return {
+        message: SUCCESS_MESSAGES.LOGOUT_SUCCESS
+    };
+};
+
+/**
+ * Logout from all devices
+ * @param {string} userId
+ * @returns {Promise<object>} - { message }
+ */
+const logoutAllDevices = async (userId) => {
+    const result = await RefreshToken.deleteMany({ userId });
+
+    return {
+        message: SUCCESS_MESSAGES.LOGOUT_ALL_SUCCESS,
+        devicesLoggedOut: result.deletedCount
+    };
+};
+
+/**
+ * Get active sessions for a user
+ * @param {string} userId
+ * @returns {Promise<array>} - Array of active sessions
+ */
+const getActiveSessions = async (userId) => {
+    const sessions = await RefreshToken.find({ userId })
+        .select('deviceId deviceInfo lastUsedAt createdAt')
+        .sort({ lastUsedAt: -1 });
+
+    return sessions.map(session => ({
+        deviceId: session.deviceId,
+        deviceName: session.deviceInfo?.name || 'Unknown Device',
+        deviceType: session.deviceInfo?.type || 'unknown',
+        lastUsedAt: session.lastUsedAt,
+        createdAt: session.createdAt
+    }));
+};
+
 module.exports = {
+    // Signup
     initiateSignup,
     verifySignupOTP,
-    resendSignupOTP
+    resendSignupOTP,
+    // Login
+    login,
+    googleOAuthLogin,
+    // Token Management
+    refreshAccessToken,
+    logout,
+    logoutAllDevices,
+    getActiveSessions
 };

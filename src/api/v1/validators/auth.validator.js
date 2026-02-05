@@ -106,9 +106,41 @@ const resendOtpValidator = [
     validate
 ];
 
+/**
+ * Login validation rules
+ */
+const loginValidator = [
+    body('email')
+        .trim()
+        .notEmpty()
+        .withMessage('Email is required')
+        .isEmail()
+        .withMessage('Please provide a valid email address')
+        .normalizeEmail(),
+
+    body('password')
+        .notEmpty()
+        .withMessage('Password is required'),
+
+    validate
+];
+
+/**
+ * Refresh token validation rules
+ */
+const refreshTokenValidator = [
+    body('refreshToken')
+        .notEmpty()
+        .withMessage('Refresh token is required'),
+
+    validate
+];
+
 module.exports = {
     signupValidator,
     verifyOtpValidator,
     resendOtpValidator,
+    loginValidator,
+    refreshTokenValidator,
     validate
 };

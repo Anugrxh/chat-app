@@ -77,7 +77,18 @@ Verifies OTP and creates user account.
 **Headers:**
 ```
 Content-Type: application/json
+x-device-id: unique-device-identifier (optional)
 ```
+
+> 💡 **Device Tracking:** The `x-device-id` header enables multi-device session management. If not provided, a device fingerprint is auto-generated from IP + User-Agent.
+
+**Device Info Stored:**
+| Field | Description |
+|-------|-------------|
+| `deviceId` | From `x-device-id` header |
+| `deviceInfo.name` | e.g., "Chrome on Windows" |
+| `deviceInfo.type` | "desktop", "mobile", "api-client" |
+| `deviceInfo.ip` | Client IP address |
 
 **Request Body:**
 ```json
@@ -169,6 +180,14 @@ Content-Type: application/json
         { "field": "email", "message": "Please provide a valid email address" },
         { "field": "password", "message": "Password must be at least 8 characters long" }
     ]
+}
+```
+
+**Duplicate Email (409):**
+```json
+{
+    "success": false,
+    "message": "User with this email already exists"
 }
 ```
 

@@ -6,8 +6,6 @@ A simple chat app using Node.js, Express, MongoDB, Socket.io
 
 ---
 
-
-kk
 ## Getting Started
 
 ```bash
